@@ -1,0 +1,199 @@
+---
+title: "HW1_Kazantseva_E"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+  if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+if (!requireNamespace("GEOquery", quietly = TRUE)) BiocManager::install("GEOquery")
+if (!requireNamespace("Biobase", quietly = TRUE)) BiocManager::install("Biobase")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("reshape2", quietly = TRUE)) install.packages("reshape2")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("limma", quietly = TRUE)) BiocManager::install("limma")
+if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
+if (!requireNamespace("PCAtools", quietly = TRUE)) BiocManager::install("PCAtools")
+
+library(GEOquery)
+library(Biobase)
+library(ggplot2)
+library(reshape2)
+library(limma)
+library(MASS)
+library(PCAtools)
+library(dplyr)
+library(sva)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+library(ggrepel)
+library(dplyr)
+library(fgsea)
+
+
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("pheatmap", quietly = TRUE)) install.packages("pheatmap")
+if (!requireNamespace("RColorBrewer", quietly = TRUE)) install.packages("RColorBrewer")
+if (!requireNamespace("ggrepel", quietly = TRUE)) install.packages("ggrepel")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+
+if (!requireNamespace("limma", quietly = TRUE)) BiocManager::install("limma")
+if (!requireNamespace("Biobase", quietly = TRUE)) BiocManager::install("Biobase")
+if (!requireNamespace("sva", quietly = TRUE)) BiocManager::install("sva")
+if (!requireNamespace("fgsea", quietly = TRUE)) BiocManager::install("fgsea")
+if (!requireNamespace("PCAtools", quietly = TRUE)) BiocManager::install("PCAtools")
+
+
+## ----message=FALSE--------------------------------------------------------------------------------------
+library(Biobase)
+library(limma)
+library(sva)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+library(ggrepel)
+library(dplyr)
+library(fgsea)
+library(PCAtools)
+GSE122121 <- getGEO("GSE122121", AnnotGPL = TRUE)[[1]]
+```
+
+
+###Filtering
+```{r SET}
+
+#colnames(pData(GSE122121))
+#head(pData(GSE122121))
+pData(GSE122121)$rep <- gsub(".*rep", "rep \\1", pData(GSE122121)$title)
+pData(GSE122121) <- pData(GSE122121)[, c("title", "infection:ch1", "genotype/variation:ch1","rep")]
+colnames(pData(GSE122121)) <- c("Title", "Infection","Genotype","Replicate")
+#head(pData(GSE122121))
+#colnames(fData(GSE122121))
+fData(GSE122121) <- fData(GSE122121)[, c( "Gene symbol","ID", "Gene ID")]
+```
+
+## Normalization
+
+```{r pressure, echo=FALSE}
+ggplot(data=data.frame(expression=exprs(GSE122121)[, 1]),
+       aes(x=expression)) +
+  geom_histogram()
+```
+
+
+```{r}
+exprs(GSE122121) <- normalizeBetweenArrays(exprs(GSE122121), 
+                                          method="quantile")#head(exprs(GSE122121))
+```
+The dataset already in log scale so we only need to Quantile normalize.
+
+##Filtering
+
+```{r}
+GSE122121 <- GSE122121[!grepl("///", fData(GSE122121)$`Gene symbol`), ]
+GSE122121 <- GSE122121[fData(GSE122121)$`Gene symbol` != "", ]
+fData(GSE122121)$mean_expression <- apply(exprs(GSE122121), 1, mean)
+GSE122121 <- GSE122121[order(fData(GSE122121)$mean_expression, decreasing = TRUE), ]
+GSE122121 <- GSE122121[!duplicated(fData(GSE122121)$`Gene ID`), ]
+GSE122121 <-GSE122121[,pData(GSE122121)$`Infection`!="PBS"]
+#pData(GSE122121)$Infection
+GSE122121 <- GSE122121[seq_len(12000), ]
+dim(GSE122121)
+```
+
+## PCA
+
+```{r}
+
+
+for (i in c(1:12)) {
+  if (pData(GSE122121)[i,"Genotype"]=='wild type' && pData(GSE122121)[i,"Infection"]=='Zika virus (ZIKV) strain MR766 at an MOI of 0.1') {
+    pData(GSE122121)[i,"Genotype/Inf"]="ZIKA/WT"}
+    if (pData(GSE122121)[i,"Genotype"]!='wild type' && pData(GSE122121)[i,"Infection"]=='Zika virus (ZIKV) strain MR766 at an MOI of 0.1') {
+    pData(GSE122121)[i,"Genotype/Inf"]="ZIKA/KO"}
+      if (pData(GSE122121)[i,"Genotype"]=='wild type' && pData(GSE122121)[i,"Infection"]!='Zika virus (ZIKV) strain MR766 at an MOI of 0.1') {
+    pData(GSE122121)[i,"Genotype/Inf"]="WNV/WT"}
+  
+      if (pData(GSE122121)[i,"Genotype"]!='wild type' && pData(GSE122121)[i,"Infection"]!='Zika virus (ZIKV) strain MR766 at an MOI of 0.1') {
+    pData(GSE122121)[i,"Genotype/Inf"]="WNV/KO"}
+
+}
+#pData(GSE122121)
+
+pcaData <- pca(exprs(GSE122121), metadata=pData(GSE122121))
+biplot(pcaData, colby ="Genotype/Inf", legendPosition = "right")
+
+
+```
+
+
+                                                                                                               We see 4 groups observed on PCA plot instead of 2, caused by different virus types.
+
+
+##Create matrix and DE
+```{r}
+#pData(GSE122121)
+
+full_model <- model.matrix(~0 + Genotype + Infection, data = pData(GSE122121))
+colnames(full_model) <- c("Ripk3", "wild_type","Zika")
+full_model
+
+```
+
+```{r}
+
+fit <- lmFit(GSE122121, full_model)
+fit2 <- contrasts.fit(fit, makeContrasts(Ripk3 - wild_type, levels=full_model))
+fit2 <- eBayes(fit2, trend = T)
+de <- topTable(fit2, adjust.method="BH"
+
+, number=Inf, sort.by = "P")
+
+head(de$Gene.symbol,30)
+
+```
+
+##Volkano Plot
+```{r}
+ggplot(de, aes(x=logFC, y=-log10(adj.P.Val), color=adj.P.Val < 0.05)) +
+  geom_point() + theme_bw() + scale_color_manual(values=c("black", "red")) +
+  geom_text_repel(data=de %>% dplyr::filter(adj.P.Val < 1e-10), aes(label=Gene.symbol, color=NULL))
+```
+    ```{r}
+    
+load("secondary_analysis/keggSymbolMouse.rdata")
+upRegulatedGenes <- de %>% filter(adj.P.Val < 0.05 & logFC > 0) %>% pull("Gene.symbol")
+#length(upRegulatedGenes)
+#head(upRegulatedGenes)
+stats <- de$t
+names(stats) <- de$Gene.symbol
+fgseaResults <- fgseaMultilevel(keggSymbolMouse, stats, minSize = 15, maxSize = 500)
+head(fgseaResults, 3)
+```
+
+###Top Pathways
+    ```{r}
+
+topPathwaysUp <- fgseaResults[ES > 0, ][head(order(pval), n=5), pathway]
+topPathwaysDown <- fgseaResults[ES < 0, ][head(order(pval), n=5), pathway]
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+```
+
+#Top PathwaysUP
+```{r}
+topPathwaysUp
+```
+
+#Top PathwaysDown
+```{r}
+topPathwaysDown
+```
+
+
+```{r}
+plotGseaTable(keggSymbolMouse[topPathways], stats, fgseaResults, gseaParam = 0.5)
+```
+                                                                  
