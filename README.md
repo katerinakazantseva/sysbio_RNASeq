@@ -1,5 +1,5 @@
 # sysbio
-# HW1
+# DE_GSE122121.Rmd
 In infected samples what's different with KO?
 Dataset:GSE122121 
 1) normalize the dataset and make sure it's in log-scale
