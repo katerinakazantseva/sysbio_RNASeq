@@ -1,5 +1,5 @@
 # sysbio
-# DE_GSE122121.Rmd MICROARRAY DIFF EXPRESSION
+## DE_GSE122121.Rmd MICROARRAY DIFF EXPRESSION
 In infected samples what's different with KO?
 Dataset:GSE122121 
 1) normalize the dataset and make sure it's in log-scale
@@ -10,7 +10,7 @@ Dataset:GSE122121
 
 
 
-# DE_GSE126296.Rmd MICROARRAY DIFF EXPRESSION
+## DE_GSE126296.Rmd MICROARRAY DIFF EXPRESSION
 Does male and female donors respond the same way to sprint? Show unique genes and pathways for female
 Dataset:GSE126296
 1) normalize the dataset and make sure it's in log-scale
@@ -20,11 +20,11 @@ Dataset:GSE126296
 
 
 
-# HW2
+## HW2
 Control vs Prdm16 KO 
 Dataset:GSE137888
 
-# HW4
+## HW4
 
 Preprocessing: filtering out bad cells and normalization
 UMAP + clustering
