@@ -1,0 +1,211 @@
+---
+title: "GSE126296"
+author: "Kazantseva"
+date: "4/4/2023"
+output: html_document
+---
+#GSE126296
+#Does male and female donors respond the same way to sprint? Show unique genes and pathways for female
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+if (!requireNamespace("GEOquery", quietly = TRUE)) BiocManager::install("GEOquery")
+if (!requireNamespace("Biobase", quietly = TRUE)) BiocManager::install("Biobase")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("reshape2", quietly = TRUE)) install.packages("reshape2")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("limma", quietly = TRUE)) BiocManager::install("limma")
+if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
+if (!requireNamespace("PCAtools", quietly = TRUE)) BiocManager::install("PCAtools")
+if (!requireNamespace("sva", quietly = TRUE)) BiocManager::install("sva")
+library(GEOquery)
+library(Biobase)
+library(ggplot2)
+library(reshape2)
+library(limma)
+library(MASS)
+library(PCAtools)
+library(dplyr)
+library(sva)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+library(ggrepel)
+library(dplyr)
+library(fgsea)
+```
+
+
+```{r}
+DATA<- getGEO("GSE126296", AnnotGPL = TRUE)[[1]]
+GSE126296 <- DATA
+
+
+#head(pData(DATA))
+#head(exprs(DATA))
+#experimentData(DATA)
+
+```
+
+
+###Filtering
+```{r SET}
+
+#head(pData(GSE126296))
+#head(fData(GSE126296))
+
+pData(GSE126296) <- pData(GSE126296)[, c("title", "gender:ch1", "time:ch1","individual:ch1")]
+colnames(pData(GSE126296)) <- c("Title", "Gender","Time","Sprint")
+#head(pData(GSE126296))
+#colnames(fData(GSE126296))
+
+fData(GSE126296) <- fData(GSE126296)[, c( "Gene symbol","ID", "Gene ID")]
+```
+
+## Normalization
+
+```{r pressure, echo=FALSE}
+
+ggplot(data=data.frame(expression=exprs(GSE126296)[, 1]),
+       aes(x=expression)) +
+  geom_histogram()
+
+
+
+
+exprs(GSE126296)=log2(exprs(GSE126296))
+
+ ggplot(data=data.frame(expression=exprs(GSE126296)[, 1]),
+       aes(x=expression)) +
+  geom_histogram()
+```
+
+
+```{r}
+
+exprs(GSE126296) <- normalizeBetweenArrays(exprs(GSE126296), 
+                                          method="quantile")
+#head(exprs(GSE122121))
+```
+
+
+##Filtering
+
+```{r}
+#fData(GSE126296)
+
+
+
+
+GSE126296_F=GSE126296[!grepl("///", fData(GSE126296)$"Gene symbol"), ]
+
+
+
+GSE126296_F <- GSE126296_F[fData(GSE126296_F)$"Gene symbol"!= "", ]
+fData(GSE126296_F)$mean_expression <- apply(exprs(GSE126296_F), 1, mean)
+GSE126296_F <- GSE126296_F[order(fData(GSE126296_F)$mean_expression, decreasing = TRUE), ]
+GSE126296_F <- GSE126296_F[!duplicated(fData(GSE126296_F)$"Gene symbol"), ]
+
+
+
+
+#pData(GSE126296_F)
+
+#pData(GSE122121)$Infection
+GSE126296_F <- GSE126296_F[seq_len(12000), ]
+dim(GSE126296_F)
+```
+
+## PCA
+
+```{r}
+
+
+for (i in c(1:28)) {
+  if (pData(GSE126296_F)[i,"Gender"]=='male' && pData(GSE126296_F)[i,"Time"]=='pre-exercise') {
+    pData(GSE126296_F)[i,"Gender/Time"]="male/pre"}
+    if (pData(GSE126296_F)[i,"Gender"]!='male' && pData(GSE126296_F)[i,"Time"]=='pre-exercise') {
+    pData(GSE126296_F)[i,"Gender/Time"]="female/pre"}
+      if (pData(GSE126296_F)[i,"Gender"]=='male' && pData(GSE126296_F)[i,"Time"]!='pre-exercise') {
+    pData(GSE126296_F)[i,"Gender/Time"]="male/post"}
+      if (pData(GSE126296_F)[i,"Gender"]!='male' && pData(GSE126296_F)[i,"Time"]!='pre-exercise') {
+    pData(GSE126296_F)[i,"Gender/Time"]="female/post"}
+}
+
+
+
+pcaData <- pca(exprs(GSE126296_F), metadata=pData(GSE126296_F))
+biplot(pcaData, colby ="Time", legendPosition = "right")
+biplot(pcaData, colby ="Gender", legendPosition = "right")
+biplot(pcaData, colby ="Gender/Time", legendPosition = "right")
+```
+
+
+                                                                                                               We 
+
+
+##Create matrix and DE
+```{r}
+#pData(GSE122121)
+full_model <- model.matrix(~0 + Gender + Time, data = pData(GSE126296_F))
+colnames(full_model) <- c("Female", "Male","Time")
+#full_model
+```
+
+```{r}
+fit <- lmFit(GSE126296_F, full_model)
+
+fit2 <- contrasts.fit(fit, makeContrasts(Female-Male, levels=full_model))
+
+fit2 <- eBayes(fit2, trend = T)
+de <- topTable(fit2, adjust.method="BH"
+, number=Inf, sort.by = "P")
+head(de$Gene.symbol,30)
+```
+
+##Volkano Plot
+```{r}
+ggplot(de, aes(x=logFC, y=-log10(adj.P.Val), color=adj.P.Val < 0.05)) +
+  geom_point() + theme_bw() + scale_color_manual(values=c("black", "red")) +
+  geom_text_repel(data=de %>% dplyr::filter(adj.P.Val < 1e-10), aes(label=Gene.symbol, color=NULL))
+```
+```{r}
+if (!requireNamespace("gage", quietly = TRUE)) BiocManager::install("gage")
+library("gage")
+keggSymbolH=kegg.gsets(species = "hsa", id.type = "kegg", check.new=FALSE)
+test=keggSymbolH$kg.sets
+upRegulatedGenes <- de %>% filter(adj.P.Val < 0.05 & logFC > 0) %>% pull("Gene.symbol")
+length(upRegulatedGenes)
+head(upRegulatedGenes)
+#upRegulatedGenes
+stats <- de$t
+
+names(stats) <- de$Gene.ID
+
+fgseaResults <- fgseaMultilevel(test, stats, minSize = 15, maxSize = 500)
+head(fgseaResults, 3)
+```
+
+###Top Pathways
+```{r}
+topPathwaysUp <- fgseaResults[ES > 0, ][head(order(pval), n=5), pathway]
+topPathwaysDown <- fgseaResults[ES < 0, ][head(order(pval), n=5), pathway]
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+```
+
+#Top PathwaysUP
+```{r}
+topPathwaysUp
+```
+
+#Top PathwaysDown
+```{r}
+topPathwaysDown
+```
+
+
+```{r}
+plotGseaTable(test[topPathways], stats, fgseaResults, gseaParam = 0.5)
+```
+                                                           
