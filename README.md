@@ -1,5 +1,7 @@
 # sysbio
 
+# RNA-seq pipelines for microarray data and single cell seq  
+
 ## [DE,scRNA]_[DATASET]
 
 ### DE- MICROARRAY DIFF EXPRESSION
