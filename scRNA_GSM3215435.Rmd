@@ -1,0 +1,117 @@
+---
+title: "scRNA-seq analisys Kazantseva"
+output: html_document
+---
+
+
+Preprocessing: filtering out bad cells and normalization
+UMAP + clustering
+Marker selection for clusters
+GSM3215435
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!requireNamespace("Seurat", quietly = TRUE)) install.packages("Seurat")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("MAST", quietly = TRUE)) BiocManager::install("MAST")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("Matrix", quietly = TRUE)) install.packages("Matrix")
+
+library(Seurat)
+library(Matrix)
+library(MAST)
+library(ggplot2)
+library(dplyr)
+
+```
+
+## R Markdown
+
+
+```{r}
+data <- Read10X("Downloads/GSM3215435/")
+dim(data)
+
+
+plotData <- data.frame(
+  umis <- colSums(data)
+)
+
+ggplot(data=plotData, aes(x=umis)) +
+  geom_histogram() + theme_bw()
+
+```
+
+
+```{r}
+seurat <- CreateSeuratObject(data, min.cells = 10, min.features = 10)
+dim(seurat)
+```
+```{r,message=FALSE}
+
+seurat[["percent.mt"]] <- PercentageFeatureSet(seurat, pattern = "^MT-")
+FeatureScatter(seurat, "nCount_RNA", "nFeature_RNA") + scale_x_log10() + scale_y_log10()
+FeatureScatter(seurat, "nCount_RNA", "percent.mt")+scale_x_log10()
+FeatureScatter(seurat, "nFeature_RNA", "percent.mt") + scale_x_log10()
+
+
+
+```
+
+```{r,message=FALSE}
+seurat <- subset(seurat, subset = nFeature_RNA > 1000)
+dim(seurat)
+
+
+
+
+seurat <- SCTransform(seurat, vars.to.regress = "percent.mt", verbose = FALSE)
+VariableFeaturePlot(seurat) + scale_y_log10()
+top10_variable_genes <- head(VariableFeatures(seurat), 10)
+VariableFeaturePlot(seurat) %>%
+LabelPoints(points = top10_variable_genes, repel = TRUE) +
+scale_y_log10()
+
+seurat <- RunPCA(seurat, verbose = FALSE)
+
+
+
+ElbowPlot(seurat, ndims = 50)
+
+
+
+seurat <- RunUMAP(seurat, dims=1:20, verbose = FALSE)
+
+DimPlot(seurat, reduction = "umap") + NoLegend()
+
+#seurat <- RunTSNE(seurat, dims=1:10)
+#DimPlot(seurat, reduction = "tsne") + NoLegend()
+
+```
+
+```{r,message=FALSE}
+
+seurat <- FindNeighbors(seurat, dims = 1:20, verbose = FALSE)
+seurat <- FindClusters(seurat, resolution=0.6, verbose = FALSE)
+DimPlot(seurat, reduction = "umap", label = TRUE) + NoLegend()
+
+
+FeaturePlot(seurat, c("Cd3e",'Flt3'), cols=c("grey", "red"), reduction="umap", ncol=3)
+
+
+allMarkers <- FindAllMarkers(seurat, max.cells.per.ident = 100, test.use = "MAST", only.pos = T,assay = "RNA", verbose = FALSE)
+
+
+
+
+goodMarkers <- allMarkers %>% group_by(cluster) %>% top_n(n = 1, wt = avg_log2FC) %>% pull(gene)
+
+
+FeaturePlot(seurat, goodMarkers[6:10], cols=c("grey", "red"), reduction="umap", ncol=3)
+
+VlnPlot(seurat, goodMarkers[6:10], pt.size = 0.1) 
+
+
+```
